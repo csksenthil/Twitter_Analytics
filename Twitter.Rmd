@@ -1,0 +1,480 @@
+---
+title: "Twitter_Analytics"
+author: "Senthilkumar Chandrasekaran"
+date: "9/15/2019"
+output:
+  word_document: 
+    fig_caption: yes
+    fig_height: 5
+    fig_width: 8
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r include=FALSE}
+rm(list=ls())
+library(psych)
+library(ggplot2)
+library(ggrepel)
+library(dplyr)
+library(plyr)
+library(tm)
+library(stopwords)
+library(wordcloud) 
+library(cluster)
+library(fpc)
+library(tidytext)
+library(tidyr)
+library(data.table)
+library(lubridate)
+library(factoextra)
+library(graph)
+```
+
+The below program is to perform the analysis of the followers in Twitter for a particular Twitter handle.
+
+```{r include=FALSE}
+#File Read. fd is the dataframe for Followers data
+fd <- read.csv(file.choose())
+headTail(fd)
+```
+
+
+Plot of Follower's Location - Top 30
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+fd %>%
+  dplyr::count(location, sort = TRUE)%>%
+  mutate(location = reorder(location, n)) %>%
+  na.omit() %>%
+  top_n(30) %>%
+  ggplot(aes(x = location, y = n)) +
+  geom_col(fill="blue", colour="black") +
+  coord_flip() +
+  labs(x = "Location",
+       y = "Count",
+       title = "Follower's Locations")+
+  theme_minimal()
+```
+
+Plot to identify top 20 Influential Followers
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+fd1 <- fd %>%
+  arrange(desc(tweets))%>%
+  slice(1:20)
+
+  qfplot <- ggplot(data = fd1, aes(x = tweets, y=followers, label=username)) +
+  geom_point(color = "blue", size = 3) +
+  labs(x = "No of Followers",
+       y = "Tweets Count",
+       title = "Active Influential Followers ")
+  qfplot + geom_label_repel(aes(label = username),
+                 box.padding   = 0.35, 
+                 point.padding = 0.5,
+                 segment.color = 'grey50') +
+  theme_classic()
+```
+
+Calculation of Total Followers
+```{r include=FALSE}
+f_cnt <- nrow(fd)
+f_cnt
+```
+
+In the following, we are performing the analysis using the tweets from a particular company
+```{r include=FALSE}
+td <- read.csv(file.choose())
+headTail(td)
+td$date <- dmy(td$date)
+```
+
+```{r echo=FALSE, message=TRUE, warning=FALSE}
+#Engagement Metrics
+t_cnt <- nrow(td)
+l_cnt <- sum(td$likes_count)
+r_cnt <- sum(td$replies_count)
+rt_cnt <- sum(td$retweets_count)
+
+
+#Result Output
+message("Follower's Count       : ",f_cnt)
+message("Tweet Count            : ",t_cnt)
+message("Likes Count            : ",l_cnt)
+message("Replies Count          : ",r_cnt)
+message("Retweets Count         : ",rt_cnt)
+message("Applause Rate          : ",round(l_cnt/f_cnt,digits = 2)*100)
+message("Avg. Engagement Rate % : ",round(sum(l_cnt+r_cnt+rt_cnt)/f_cnt,digits=2)*100)
+message("Amplification Rate  %  : ",round(rt_cnt/f_cnt,digits = 2)*100)
+message("Virality Rate %        : ",round(rt_cnt/(l_cnt+r_cnt+rt_cnt),digits = 2)*100)
+```
+
+
+Graph Plotting No. of Retweets vs Retweet & Like Count. This shows the total likes for the Retweet instance. 
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#Graphs
+ggplot(td)+ 
+  geom_bar(aes(x=likes_count, fill="likes_count"), colour = "black") + 
+  geom_bar(aes(x=retweets_count, fill="retweets_count"), colour="black", alpha=0.5) + 
+  xlab("No. of Likes / Retweets")  + ylab("Likes & Retweets Count") +
+  ggtitle("Engagement") 
+```
+
+Graph plotting the amount of tweets posted by Hours of Day and its influence on Likes and Retweets Count
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#View(byHourOfDay)
+
+byHourOfDay <-ddply(td, ~time_c, summarise,tweetCount = length(name),
+                    retweetCount = sum(retweets_count), retweetMean = mean(retweets_count), 
+                    likesCount = sum(likes_count), likesMean = mean(likes_count))
+
+byHourOfDay$time_c <- round(byHourOfDay$time_c, digits=0)
+
+ggplot(byHourOfDay, aes(x=time_c, y=tweetCount)) + 
+  geom_col(aes(fill="tweetCount"),stat="count")+ 
+  geom_col(aes(y=likesCount, fill="likesCount"),stat="count",alpha=0.5)+
+  geom_col(aes(y=retweetCount, fill="retweetCount"),stat="count",alpha=0.7)+
+  scale_x_continuous(breaks=byHourOfDay$time_c) +
+  ggtitle('Tweets by hour of day') +
+  theme_minimal()
+```
+
+Graph plotting the amount of tweets posted by Hours of Day and its influence on Likes and Retweets Count
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#View(byMonth)
+
+byMonth <-ddply(td, ~date, summarise,tweetCount = length(name),
+                    retweetCount = sum(retweets_count), retweetMean = mean(retweets_count), 
+                    likesCount = sum(likes_count), likesMean = mean(likes_count))
+byMonth$month <- lubridate::month(as.POSIXlt(byMonth$date, format="%m/%d/%Y"))
+
+ggplot(byMonth, aes(x=lubridate::month(month, label=TRUE), y=tweetCount)) + 
+  geom_col(aes(fill="tweetCount"),stat="count")+ 
+  geom_col(aes(y=likesCount, fill="likesCount"),stat="count",alpha=0.5)+
+  geom_col(aes(y=retweetCount, fill="retweetCount"),stat="count",alpha=0.7)+
+  xlab("Month")
+  ggtitle('Tweets by hour of day') +
+theme_classic()
+```
+
+The following are the text analysis from the tweets.
+```{r message=FALSE, warning=FALSE, include=FALSE}
+#Pre-Processing
+
+# build a corpus, and specify the source to be character vectors
+myCorpus <- Corpus(VectorSource(td$tweet))
+
+#remove pictwitter
+
+removepictwit <- function(z) gsub("#[A-Za-z0-9]+|@[A-Za-z0-9]+|\\w+(?:\\.\\w+)*/\\S+", "", z)
+myCorpus <- tm_map(myCorpus, content_transformer(removepictwit))
+
+# convert to lower case
+myCorpus <- tm_map(myCorpus, content_transformer(tolower))
+
+# remove URLs
+removeURL <- function(x) gsub("http[^[:space:]]*", "", x)
+myCorpus <- tm_map(myCorpus, content_transformer(removeURL))
+
+# remove URLs https
+removeURL2 <- function(x) gsub("https[^[:space:]]*", "", x)
+myCorpus <- tm_map(myCorpus, content_transformer(removeURL2))
+
+# remove anything other than English letters or space
+removeNumPunct <- function(y) gsub("[^[:alpha:][:space:]]*", "", y)
+myCorpus <- tm_map(myCorpus, content_transformer(removeNumPunct))
+writeLines(as.character(myCorpus))
+
+# remove extra whitespace
+myCorpus <- tm_map(myCorpus, stripWhitespace)
+
+#Removing Numbers
+myCorpus <- tm_map(myCorpus, removeNumbers)
+
+# Remove Punctuation
+myCorpus <- tm_map(myCorpus, removePunctuation)
+
+# Remove Special Characters
+dat1 <- sapply(myCorpus, function(row) iconv(row, "latin1", "ASCII", sub=""))
+myCorpus <- Corpus(VectorSource(dat1))
+
+
+#Remove Stopwords
+myCorpus <- tm_map(myCorpus, removeWords, c(stopwords(language = "en", source = "snowball"),"â","âa"))
+
+myCorpus <- tm_map(myCorpus, removeWords, c(stopwords(language = "en", source = "stopwords-iso")))
+
+
+# replace oldword with newword
+replaceWord <- function(corpus, oldword, newword) {
+tm_map(corpus, content_transformer(gsub),
+pattern=oldword, replacement=newword)
+}
+myCorpus <- replaceWord(myCorpus, "engineers", "engineer") # run if needed
+myCorpus <- replaceWord(myCorpus, "engineering", "engineer") # run if needed
+myCorpus <- replaceWord(myCorpus, "vehicles", "vehicle") # run if needed
+myCorpus <- replaceWord(myCorpus, "learning", "learn") # run if needed
+myCorpus <- replaceWord(myCorpus, "altrans", "altran") # run if needed
+
+
+writeLines(as.character(myCorpus))
+
+#Term Document Matrix - Unstemmed
+tdm <- TermDocumentMatrix(myCorpus)
+
+#Stemming
+myCorpus1 <- tm_map(myCorpus, stemDocument)
+writeLines(as.character(myCorpus1))
+
+#Term Document Matrix - Stemmed
+tdms <- TermDocumentMatrix(myCorpus1) #use stemmed document to compare against unstemmed
+
+```
+
+Frequently Used Words
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# inspect frequent words
+
+term.freq <- rowSums(as.matrix(tdm))
+term.freq <- subset(term.freq, term.freq >= 10)
+df <- data.frame(term = names(term.freq), freq = term.freq)
+
+ggplot(df, aes(x=term, y=freq)) + geom_bar(stat="identity", fill='darkgreen') +
+  xlab("Terms") + ylab("Count") + coord_flip() +
+  theme_minimal()
+```
+
+Frequently Used words - WordCloud
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#Word Clouds   
+   
+freq <- rowSums(as.matrix(tdm)) # Find word frequencies   
+dark2 <- brewer.pal(6, "Dark2")   
+wordcloud(names(freq), freq, max.words=100, rot.per=0.2, colors=dark2)
+```
+
+Hierarchial Clustering
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+### Clustering by Term Similarity
+
+### Hierarchal Clustering   
+ 
+# remove sparse terms
+tdm2 <- removeSparseTerms(tdm, sparse = 0.95)
+m2 <- as.matrix(tdm2)
+
+#Optimum Clusters
+fviz_nbclust(m2, FUN = hcut, method = "wss") + theme_classic()
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+# cluster terms
+distMatrix <- dist(scale(m2))
+fit <- hclust(distMatrix, method = "ward.D")
+plot(fit)
+rect.hclust(fit, k = 4, border = 2:5)
+
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+fit1 <- hclust(distMatrix, method = "ward.D")
+sub_grp <- cutree(fit, k = 4)
+fviz_cluster(list(data = distMatrix, cluster = sub_grp))
+plot(silhouette(cutree(fit,4),distMatrix))
+```
+
+```{r}
+# Filter the audience reactions based on key terms
+df1 <- data.frame(df$term, df$freq)
+df2 <- list()
+
+for (i in 1:length(df1$df.term)) {
+  dat <- td %>% dplyr::filter(grepl(df1$df.term[i], tweet, ignore.case = TRUE)) %>% 
+    summarise(likes = sum(likes_count), replies = sum(replies_count), retweets = sum(retweets_count))
+  dat$term <- df1$df.term[i]
+  dat$freq <- df1$df.freq[i]
+df2[[i]] <- dat
+}
+df2<- do.call(rbind, df2)
+df2$eng <- df2$likes+df2$replies+df2$retweets
+df2$epp <- df2$eng/df2$freq
+
+df3 <- df2 %>%
+  arrange(desc(epp))%>%
+  slice(1:20)
+
+ggplot(df3, aes(x=term, y=epp)) + geom_bar(stat="identity", fill='darkgreen') +
+  xlab("Terms") + ylab("Engagement per Post") + coord_flip() +
+  theme_minimal()
+
+```
+
+```{r}
+# Filter the terms used in prominent cluster #1 to find audience reactions
+sel2 <- dplyr::filter(td, grepl('india', tweet, ignore.case = TRUE))
+
+
+#Result Output
+message("Occurrence             : ",nrow(sel2))
+message("Likes Count            : ",sum(sel2$likes_count))
+message("Replies Count          : ",sum(sel2$replies_count))
+message("Retweets Count         : ",sum(sel2$retweets_count))
+```
+
+```{r}
+# Filter the terms used in prominent cluster #1 to find audience reactions
+sel3 <- dplyr::filter(td, grepl('read', tweet, ignore.case = TRUE))
+
+
+#Result Output
+message("Occurrence             : ",nrow(sel3))
+message("Likes Count            : ",sum(sel3$likes_count))
+message("Replies Count          : ",sum(sel3$replies_count))
+message("Retweets Count         : ",sum(sel3$retweets_count))
+```
+
+K-Means Clustering
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+### K-means clustering   
+  
+d <- dist((tdm2), method="euclidian")   
+kfit <- kmeans(d, 4)   
+clusplot(as.matrix(d), kfit$cluster, color=T, shade=T, labels=2, lines=0)
+
+```
+
+```{r}
+#Network Graph
+# transform into a term-term adjacency matrix
+m3 <- m2 %*% t(m2)
+
+library(igraph)
+# build a graph from the above matrix
+g <- graph.adjacency(m3, weighted=T, mode = "undirected")
+# remove loops
+g <- simplify(g)
+# set labels and degrees of vertices
+V(g)$label <- V(g)$name
+V(g)$degree <- degree(g)
+
+
+# plot the graph using igraph. Tkplot is interactive
+plot(g, layout=layout.fruchterman.reingold)
+tkplot(g, layout=layout.fruchterman.reingold)
+plot(g, layout = layout_with_graphopt, edge.arrow.size = 0.2)
+
+
+
+#Convert igraph to dataframe
+g1 <- get.data.frame(g, what= "both") 
+
+#Network through ggraph
+library(tidygraph)
+library(ggraph)
+
+routes_tidy <- tbl_graph(nodes = g1$vertices, edges = g1$edges, directed = FALSE)
+routes_tidy %>% 
+  activate(edges) %>% 
+  arrange(desc(weight))
+
+ggraph(routes_tidy, layout = "graphopt") + 
+  geom_node_point() +
+  geom_edge_link(aes(width = weight), alpha = 0.8, colour = "blue") + 
+  scale_edge_width(range = c(0.1, 1.5)) +
+  geom_node_text(aes(label = label), repel = TRUE) +
+  labs(edge_width = "Tweets") +
+  theme_graph()
+
+library(visNetwork)
+
+visIgraph(g)
+
+```
+
+Below the Sentiment Analysis performed
+
+Sentiment Analysis Plot. Sentiment Score calculated through Sentiment library for the entire phrase
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# install package sentiment140
+
+#use the below two masked codes for first time only
+#require(devtools) 
+#install_github("okugami79/sentiment140")
+
+library(sentiment)
+sentiments <- sentiment(td$tweet)
+pol <- as.data.frame(table(sentiments$polarity))
+names(pol) <- c("Sentiment", "Score")
+
+# sentiment plot
+sentiments$score <- 0
+sentiments$score[sentiments$polarity == "positive"] <- 1
+sentiments$score[sentiments$polarity == "negative"] <- -1
+
+sentiments$date <- td$date
+
+sentiments$date <- mdy(sentiments$date)
+
+
+ggplot(pol, aes(x=Sentiment, y=Score, fill=Sentiment)) +
+  geom_histogram(binwidth=1,stat="identity")+
+  theme_classic()
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+result <- aggregate(score ~ date, data = sentiments, sum)
+ggplot(data=result, aes(x=date, y=score)) + geom_line() + ylab("Total Sentiment Score") + xlab("Year")+
+  theme_minimal()
+```
+
+Two Sentiment Analysis based on Document Term Matrix
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+tw_td <- tidy(tdm)
+tw_sentiments <- tw_td %>%
+  inner_join(get_sentiments("bing"), by = c(term = "word"))
+
+tw_sentiments
+
+
+tw_sentiments %>%
+  dplyr::count(sentiment, term, wt = count) %>%
+  filter(n >= 200) %>%
+  mutate(n = ifelse(sentiment == "negative", -n, n)) %>%
+  mutate(term = reorder(term, n)) %>%
+  ggplot(aes(term, n, fill = sentiment)) +
+  geom_bar(stat = "identity") +
+  #theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylab("Contribution to sentiment") +
+  theme_minimal()
+```
+
+
+Hashtag Analysis
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+hashCorpus <- Corpus(VectorSource(td$hashtags))
+hashCorpus <- tm_map(hashCorpus, stripWhitespace)
+hashCorpus <- tm_map(hashCorpus, removePunctuation)
+hashCorpus <- tm_map(hashCorpus, removeNumbers)
+tmhash <- TermDocumentMatrix(hashCorpus)
+term.freq.hash <- rowSums(as.matrix(tmhash))
+term.freq.hash <- subset(term.freq.hash, term.freq.hash >= 250)
+hm <- data.frame(term = names(term.freq.hash), freq = term.freq.hash)
+
+ggplot(hm, aes(x=term, y=freq)) + geom_bar(stat="identity", fill='blue') +
+  xlab("Terms") + ylab("Count") + coord_flip() +
+  theme_minimal()
+
+```
+
+
